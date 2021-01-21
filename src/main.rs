@@ -1,10 +1,13 @@
 use std::fs::{File};
 use crate::parsers::mccortex::{mccortex_stream};
+use std::env;
 
 pub mod parsers;
 
 fn main() {
-  let file = File::open("tests/data/sample.ctx").unwrap();
+  let args: Vec<String> = env::args().collect();
+
+  let file = File::open(&args[1]).unwrap();
   match mccortex_stream(|s| print!("{:?}\n", s), |s| print!("{:?}\n", s))(&file) {
     Err(e) => panic!(e),
     _ => {}
