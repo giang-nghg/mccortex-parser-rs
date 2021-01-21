@@ -1,6 +1,5 @@
 use std::fs::read;
 use std::error;
-use std::str::from_utf8;
 
 pub mod parsers;
 
@@ -10,7 +9,6 @@ fn main() -> Result<(), Box<dyn error::Error>>{
   match result {
     Ok((_remain, parsed)) => {
       print!("DEBUG: {:?}", parsed);
-      print!("DEBUG: {:?}", from_utf8(&*parsed.sample_names[0].value));
     },
     Err(_) => {}
   }
