@@ -30,7 +30,7 @@ pub struct Header {
 
 #[derive(Debug, PartialEq)]
 pub struct Kmer {
-    pub raw: Vec<u64>,
+    pub raw: String,
     pub colour_covs: Vec<u32>,
     pub colour_edges: Vec<u8>,
 }
@@ -94,14 +94,30 @@ pub fn cleaning(input: &[u8]) -> IResult<&[u8], Cleaning> {
     }))
 }
 
+fn nu(b: u64) -> char {
+    if b < 2u64.pow(62) { 'A' }
+    else if b >= 2u64.pow(62) && b < 2u64.pow(63) { 'C' }
+    else if b >= 2u64.pow(63) && b < 2u64.pow(63) + 2u64.pow(62) { 'G' }
+    else { 'T' }
+}
+
 pub fn kmer(n_words_per_kmer: u32, cols: u32) -> Box<dyn Fn(&[u8]) -> IResult<&[u8], Kmer>> {
     Box::new(move |input| {
         let (remain, raw) = count(le_u64, n_words_per_kmer as usize)(input)?;
         let (remain, colour_covs) = count(le_u32, cols as usize)(remain)?;
         let (remain, colour_edges) = count(le_u8, cols as usize)(remain)?;
 
+        let mut bases = Vec::new();
+        for word in &raw {
+            let mut word_copy = *word;
+            for _ in 0..32 {
+                word_copy = word_copy << 2;
+                bases.push(nu(word_copy));
+            }
+        }
+
         Ok((remain, Kmer{
-            raw, colour_covs, colour_edges
+            raw: bases.into_iter().collect::<String>(), colour_covs, colour_edges
         }))
     })
 }
@@ -204,6 +220,6 @@ fn parse_kmer() {
     };
     assert_eq!(
         parsed,
-        Kmer { raw: vec![2136700052237066417], colour_covs: vec![759], colour_edges: vec![68] }
+        Kmer { raw: String::from("CTCGGCTACCCCGAACTCCAGCGAGAAGTACA"), colour_covs: vec![759], colour_edges: vec![68] }
     );
 }
