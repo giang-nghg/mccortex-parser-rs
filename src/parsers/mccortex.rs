@@ -1,8 +1,9 @@
 use nom::{IResult};
 use nom::number::complete::{le_u8, le_u32, le_u64};
 use nom::multi::{count, length_count};
-use nom::bytes::complete::{tag, take_until};
+use nom::bytes::complete::{tag};
 use nom::sequence::tuple;
+use nom::combinator::map;
 
 // Spec: https://github.com/mcveanlab/mccortex/blob/master/docs/file_formats/graph_file_format.txt
 const SIGNATURE: &str = "CORTEX";
@@ -20,14 +21,8 @@ pub struct Header {
     pub cols: u32,
     pub mean_read_lens: Vec<u32>,
     pub total_seq_loaded: Vec<u64>,
-    pub sample_names: Vec<SampleName>,
+    pub sample_names: Vec<String>,
     pub cleaning: Vec<Cleaning>
-}
-
-#[derive(Debug, PartialEq)]
-pub struct SampleName {
-    pub len: u32,
-    pub value: String,
 }
 
 #[derive(Debug, PartialEq)]
@@ -48,7 +43,7 @@ pub fn header(input: &[u8]) -> IResult<&[u8], Header> {
     let (remain, mean_read_lens) = count(le_u32, cols as usize)(remain)?;
     let (remain, total_seq_loaded) = count(le_u64, cols as usize)(remain)?;
 
-    let (remain, sample_names) = count(sample_name, cols as usize)(remain)?;
+    let (remain, sample_names) = count(string_parser, cols as usize)(remain)?;
 
     // Skip error rate because Rust doesn't have long double (128 bits) yet
     let to_skip = 16 * cols as usize;
@@ -70,16 +65,6 @@ pub fn header(input: &[u8]) -> IResult<&[u8], Header> {
     }))
 }
 
-pub fn sample_name(input: &[u8]) -> IResult<&[u8], SampleName> {
-    let (remain, len) = le_u32(input)?;
-    let (remain, value) = count(le_u8, len as usize)(remain)?;
-
-    Ok((remain, SampleName {
-        len,
-        value: String::from_utf8(value).unwrap(),
-    }))
-}
-
 pub fn cleaning(input: &[u8]) -> IResult<&[u8], Cleaning> {
     let (remain, top_clip) = le_u8(input)?;
     let (remain, remove_low_covg_supernodes) = le_u8(remain)?;
@@ -87,7 +72,7 @@ pub fn cleaning(input: &[u8]) -> IResult<&[u8], Cleaning> {
     let (remain, cleaned_against_graph) = le_u8(remain)?;
     let (remain, remove_low_coverage_supernodes_threshold) = le_u32(remain)?;
     let (remain, remove_low_coverage_kmer_threshold) = le_u32(remain)?;
-    let (remain, graph_name) = length_count(le_u32, le_u8)(remain)?;
+    let (remain, graph_name) = string_parser(remain)?;
 
     Ok((remain, Cleaning {
         top_clip: top_clip != 0,
@@ -96,7 +81,7 @@ pub fn cleaning(input: &[u8]) -> IResult<&[u8], Cleaning> {
         cleaned_against_graph: cleaned_against_graph != 0,
         remove_low_coverage_supernodes_threshold,
         remove_low_coverage_kmer_threshold,
-        graph_name: String::from_utf8(graph_name).unwrap(),
+        graph_name,
     }))
 }
 
@@ -106,6 +91,11 @@ pub fn mccortex(input: &[u8]) -> IResult<&[u8], McCortex> {
     Ok((remain, McCortex {
         header,
     }))
+}
+
+fn string_parser(input: &[u8]) -> IResult<&[u8], String> {
+    let (remain, parsed) = map(length_count(le_u32, le_u8), |s| String::from_utf8(s).unwrap())(input)?;
+    Ok((remain, parsed))
 }
 
 const TEST_FILE: &'static [u8] = include_bytes!("../../tests/data/sample.ctx");
@@ -125,7 +115,7 @@ fn parse_header() {
             cols: 1,
             mean_read_lens: vec![177],
             total_seq_loaded: vec![3918788033],
-            sample_names: vec![SampleName { len: 6, value: "sample".to_string() }],
+            sample_names: vec!["sample".to_string()],
             cleaning: vec![Cleaning { top_clip: true, remove_low_covg_supernodes: true, remove_low_covg_kmers: false, cleaned_against_graph: false, remove_low_coverage_supernodes_threshold: 26, remove_low_coverage_kmer_threshold: 4294967295, graph_name: "undefined".to_string() }]
         }
     );
