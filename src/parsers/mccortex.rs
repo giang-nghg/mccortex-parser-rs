@@ -94,19 +94,21 @@ pub fn cleaning(input: &[u8]) -> IResult<&[u8], Cleaning> {
     }))
 }
 
-pub fn kmer(input: &[u8], n_words_per_kmer: u32, cols: u32) -> IResult<&[u8], Kmer> {
-    let (remain, raw) = count(le_u64, n_words_per_kmer as usize)(input)?;
-    let (remain, colour_covs) = count(le_u32, cols as usize)(remain)?;
-    let (remain, colour_edges) = count(le_u8, cols as usize)(remain)?;
+pub fn kmer(n_words_per_kmer: u32, cols: u32) -> Box<dyn Fn(&[u8]) -> IResult<&[u8], Kmer>> {
+    Box::new(move |input| {
+        let (remain, raw) = count(le_u64, n_words_per_kmer as usize)(input)?;
+        let (remain, colour_covs) = count(le_u32, cols as usize)(remain)?;
+        let (remain, colour_edges) = count(le_u8, cols as usize)(remain)?;
 
-    Ok((remain, Kmer{
-        raw, colour_covs, colour_edges
-    }))
+        Ok((remain, Kmer{
+            raw, colour_covs, colour_edges
+        }))
+    })
 }
 
 pub fn mccortex(input: &[u8]) -> IResult<&[u8], McCortex> {
     let (remain, header) = header(input)?;
-    let (remain, kmers) = many0(|b| kmer(b, header.n_words_per_kmer, header.cols))(remain)?;
+    let (remain, kmers) = many0(kmer(header.n_words_per_kmer, header.cols))(remain)?;
 
     Ok((remain, McCortex {
         header,
@@ -114,50 +116,52 @@ pub fn mccortex(input: &[u8]) -> IResult<&[u8], McCortex> {
     }))
 }
 
-pub fn mccortex_stream(input: &File, on_header: fn(Header), on_kmer: fn(Kmer)) -> IResult<Vec<u8>, ()> {
-    let mut buf = Vec::new();
-    let (mut n_words_per_kmer, mut cols) = (0, 0);
-    let mut is_header_parsed = false;
+pub fn mccortex_stream(on_header: fn(Header), on_kmer: fn(Kmer)) -> Box<dyn Fn(&File) -> IResult<Vec<u8>, ()>> {
+    Box::new(move |input| {
+        let mut buf = Vec::new();
+        let (mut n_words_per_kmer, mut cols) = (0, 0);
+        let mut is_header_parsed = false;
 
-    for byte in input.bytes() {
-        buf.push(byte.unwrap());
+        for byte in input.bytes() {
+            buf.push(byte.unwrap());
 
-        if !is_header_parsed {
-            match header(&*buf) {
+            if !is_header_parsed {
+                match header(&*buf) {
+                    Err(nom::Err::Incomplete(..)) => continue,
+                    Ok((remain, header)) => {
+                        is_header_parsed = true;
+                        n_words_per_kmer = header.n_words_per_kmer;
+                        cols = header.cols;
+                        buf = Vec::from(remain);
+
+                        on_header(header);
+                    },
+                    Err(nom::Err::Error(e)) => {
+                        return Err(nom::Err::Error(nom::error::Error { input: Vec::from(e.input), code: e.code }));
+                    }
+                    Err(nom::Err::Failure(e)) => {
+                        return Err(nom::Err::Failure(nom::error::Error { input: Vec::from(e.input), code: e.code }));
+                    }
+                }
+            }
+
+            match kmer(n_words_per_kmer, cols)(&*buf) {
                 Err(nom::Err::Incomplete(..)) => continue,
-                Ok((remain, header)) => {
-                    is_header_parsed = true;
-                    n_words_per_kmer = header.n_words_per_kmer;
-                    cols = header.cols;
+                Ok((remain, kmer)) => {
                     buf = Vec::from(remain);
-
-                    on_header(header);
+                    on_kmer(kmer);
                 },
                 Err(nom::Err::Error(e)) => {
-                    return Err(nom::Err::Error(nom::error::Error{input: Vec::from(e.input), code: e.code}));
+                    return Err(nom::Err::Error(nom::error::Error { input: Vec::from(e.input), code: e.code }));
                 }
                 Err(nom::Err::Failure(e)) => {
-                    return Err(nom::Err::Failure(nom::error::Error{input: Vec::from(e.input), code: e.code}));
+                    return Err(nom::Err::Failure(nom::error::Error { input: Vec::from(e.input), code: e.code }));
                 }
             }
         }
 
-        match kmer(&*buf, n_words_per_kmer, cols) {
-            Err(nom::Err::Incomplete(..)) => continue,
-            Ok((remain, kmer)) => {
-                buf = Vec::from(remain);
-                on_kmer(kmer);
-            },
-            Err(nom::Err::Error(e)) => {
-                return Err(nom::Err::Error(nom::error::Error{input: Vec::from(e.input), code: e.code}));
-            }
-            Err(nom::Err::Failure(e)) => {
-                return Err(nom::Err::Failure(nom::error::Error{input: Vec::from(e.input), code: e.code}));
-            }
-        }
-    }
-
-    Ok((buf, ()))
+        Ok((buf, ()))
+    })
 }
 
 fn string_parser(input: &[u8]) -> IResult<&[u8], String> {
@@ -194,7 +198,7 @@ fn parse_kmer() {
         Ok((remain, header)) => (remain, header),
         Err(e) => panic!(e)
     };
-    let parsed = match kmer(&remain[..13], header.n_words_per_kmer, header.cols) {
+    let parsed = match kmer(header.n_words_per_kmer, header.cols)(&remain[..13]) {
         Ok((_, parsed)) => parsed,
         Err(e) => panic!(e)
     };

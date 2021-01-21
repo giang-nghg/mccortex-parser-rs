@@ -5,7 +5,7 @@ pub mod parsers;
 
 fn main() {
   let file = File::open("tests/data/sample.ctx").unwrap();
-  match mccortex_stream(&file, |s| print!("{:?}\n", s), |s| ()) {
+  match mccortex_stream(|s| print!("{:?}\n", s), |s| ())(&file) {
     Err(e) => panic!(e),
     _ => {}
   };
