@@ -10,8 +10,6 @@ const SIGNATURE: &str = "CORTEX";
 #[derive(Debug, PartialEq)]
 pub struct McCortex {
     pub header: Header,
-    pub sample_names: Vec<SampleName>,
-    pub cleaning: Vec<Cleaning>
 }
 
 #[derive(Debug, PartialEq)]
@@ -22,6 +20,8 @@ pub struct Header {
     pub cols: u32,
     pub mean_read_lens: Vec<u32>,
     pub total_seq_loaded: Vec<u64>,
+    pub sample_names: Vec<SampleName>,
+    pub cleaning: Vec<Cleaning>
 }
 
 #[derive(Debug, PartialEq)]
@@ -43,9 +43,31 @@ pub struct Cleaning {
 
 pub fn header(input: &[u8]) -> IResult<&[u8], Header> {
     let (remain, _) = tag(SIGNATURE)(input)?;
+
     let (remain, (version, kmer_size, W, cols)) = tuple((le_u32, le_u32, le_u32, le_u32))(remain)?;
     let (remain, mean_read_lens) = count(le_u32, cols as usize)(remain)?;
     let (remain, total_seq_loaded) = count(le_u64, cols as usize)(remain)?;
+
+    let (remain, sample_names) = count(sample_name, cols as usize)(remain)?;
+
+    // Skip error rate because Rust doesn't have long double (either 80 or 128 bits) yet
+    let to_skip = 16 * cols as usize;
+    let remain = &remain[to_skip..];
+
+    // Skip cleaning information temporary
+    // let (remain, cleaning) = count(cleaning, header.cols as usize)(remain)?;
+    let (remain, _) = take_until(SIGNATURE)(remain)?;
+    let cleaning = vec![Cleaning{
+        top_clip: false,
+        remove_low_covg_supernodes: false,
+        remove_low_covg_kmers: false,
+        cleaned_against_graph: false,
+        remove_low_coverage_supernodes_threshold: 0,
+        remove_low_coverage_kmer_threshold: 0,
+        graph_name: "".to_string()
+    }];
+
+    let (remain, _) = tag(SIGNATURE)(remain)?;
 
     Ok((remain, Header {
         version,
@@ -54,6 +76,8 @@ pub fn header(input: &[u8]) -> IResult<&[u8], Header> {
         cols,
         mean_read_lens,
         total_seq_loaded,
+        sample_names,
+        cleaning,
     }))
 }
 
@@ -89,31 +113,9 @@ pub fn cleaning(input: &[u8]) -> IResult<&[u8], Cleaning> {
 
 pub fn mccortex(input: &[u8]) -> IResult<&[u8], McCortex> {
     let (remain, header) = header(input)?;
-    let (remain, sample_names) = count(sample_name, header.cols as usize)(remain)?;
-
-    // Skip error rate because Rust doesn't have long double (either 80 or 128 bits) yet
-    let to_skip = 16 * header.cols as usize;
-    let remain = &remain[to_skip..];
-
-    // Skip cleaning information temporary
-    // let (remain, cleaning) = count(cleaning, header.cols as usize)(remain)?;
-    let (remain, _) = take_until(SIGNATURE)(remain)?;
-    let cleaning = vec![Cleaning{
-        top_clip: false,
-        remove_low_covg_supernodes: false,
-        remove_low_covg_kmers: false,
-        cleaned_against_graph: false,
-        remove_low_coverage_supernodes_threshold: 0,
-        remove_low_coverage_kmer_threshold: 0,
-        graph_name: "".to_string()
-    }];
-
-    let (remain, _) = tag(SIGNATURE)(remain)?;
 
     Ok((remain, McCortex {
         header,
-        sample_names,
-        cleaning,
     }))
 }
 
