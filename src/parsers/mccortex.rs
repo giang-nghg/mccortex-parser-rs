@@ -32,7 +32,7 @@ pub struct Header {
 pub struct Kmer {
     pub raw: String,
     pub colour_covs: Vec<u32>,
-    pub colour_edges: Vec<u8>,
+    pub colour_edges: Vec<(Vec<char>, Vec<char>)>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -101,6 +101,8 @@ fn nu(b: u64) -> char {
     else { 'T' }
 }
 
+const EDGE_BASES: [char; 4] = ['A', 'C', 'G', 'T'];
+
 pub fn kmer(n_words_per_kmer: u32, cols: u32) -> Box<dyn Fn(&[u8]) -> IResult<&[u8], Kmer>> {
     Box::new(move |input| {
         let (remain, raw) = count(le_u64, n_words_per_kmer as usize)(input)?;
@@ -116,8 +118,22 @@ pub fn kmer(n_words_per_kmer: u32, cols: u32) -> Box<dyn Fn(&[u8]) -> IResult<&[
             }
         }
 
+        let mut colour_edges_vec = Vec::new();
+        for edge in &colour_edges {
+            let (mut before, mut after) = (Vec::new(), Vec::new());
+            for position in 0..4 {
+                if (1 << position) & edge != 0 {
+                    after.push(EDGE_BASES[position]);
+                }
+                if (1 << (position + 4)) & edge != 0 {
+                    before.push(EDGE_BASES[3 - position]);
+                }
+            }
+            colour_edges_vec.push((before, after));
+        }
+
         Ok((remain, Kmer{
-            raw: bases.into_iter().collect::<String>(), colour_covs, colour_edges
+            raw: bases.into_iter().collect::<String>(), colour_covs, colour_edges: colour_edges_vec
         }))
     })
 }
@@ -220,6 +236,6 @@ fn parse_kmer() {
     };
     assert_eq!(
         parsed,
-        Kmer { raw: String::from("CTCGGCTACCCCGAACTCCAGCGAGAAGTACA"), colour_covs: vec![759], colour_edges: vec![68] }
+        Kmer { raw: String::from("CTCGGCTACCCCGAACTCCAGCGAGAAGTACA"), colour_covs: vec![759], colour_edges: vec![(vec!['C'], vec!['G'])] }
     );
 }
