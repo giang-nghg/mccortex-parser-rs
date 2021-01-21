@@ -1,6 +1,6 @@
 use nom::{IResult};
 use nom::number::complete::{le_u8, le_u32, le_u64};
-use nom::multi::{count, length_count};
+use nom::multi::{count, length_count, many0};
 use nom::bytes::complete::{tag};
 use nom::sequence::tuple;
 use nom::combinator::map;
@@ -11,6 +11,7 @@ const SIGNATURE: &str = "CORTEX";
 #[derive(Debug, PartialEq)]
 pub struct McCortex {
     pub header: Header,
+    pub kmers: Vec<Kmer>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -23,6 +24,13 @@ pub struct Header {
     pub total_seq_loaded: Vec<u64>,
     pub sample_names: Vec<String>,
     pub cleaning: Vec<Cleaning>
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Kmer {
+    pub raw: Vec<u64>,
+    pub colour_covs: Vec<u32>,
+    pub colour_edges: Vec<u8>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -85,11 +93,23 @@ pub fn cleaning(input: &[u8]) -> IResult<&[u8], Cleaning> {
     }))
 }
 
+pub fn kmer(input: &[u8], W: u32, cols: u32) -> IResult<&[u8], Kmer> {
+    let (remain, raw) = count(le_u64, W as usize)(input)?;
+    let (remain, colour_covs) = count(le_u32, cols as usize)(remain)?;
+    let (remain, colour_edges) = count(le_u8, cols as usize)(remain)?;
+
+    Ok((remain, Kmer{
+        raw, colour_covs, colour_edges
+    }))
+}
+
 pub fn mccortex(input: &[u8]) -> IResult<&[u8], McCortex> {
     let (remain, header) = header(input)?;
+    let (remain, kmers) = many0(|b| kmer(b, header.W, header.cols))(remain)?;
 
     Ok((remain, McCortex {
         header,
+        kmers
     }))
 }
 
@@ -118,5 +138,21 @@ fn parse_header() {
             sample_names: vec!["sample".to_string()],
             cleaning: vec![Cleaning { top_clip: true, remove_low_covg_supernodes: true, remove_low_covg_kmers: false, cleaned_against_graph: false, remove_low_coverage_supernodes_threshold: 26, remove_low_coverage_kmer_threshold: 4294967295, graph_name: "undefined".to_string() }]
         }
+    );
+}
+
+#[test]
+fn parse_kmer() {
+    let (remain, header) = match header(&TEST_FILE[..]) {
+        Ok((remain, header)) => (remain, header),
+        Err(e) => panic!(e)
+    };
+    let parsed = match kmer(&remain[..13], header.W, header.cols) {
+        Ok((_, parsed)) => parsed,
+        Err(e) => panic!(e)
+    };
+    assert_eq!(
+        parsed,
+        Kmer { raw: vec![2136700052237066417], colour_covs: vec![759], colour_edges: vec![68] }
     );
 }
