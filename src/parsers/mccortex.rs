@@ -53,7 +53,7 @@ pub fn header(remain: &[u8]) -> IResult<&[u8], Header> {
     let (remain, mean_read_lens) = count(le_u32, cols as usize)(remain)?;
     let (remain, total_seq_loaded) = count(le_u64, cols as usize)(remain)?;
 
-    let (remain, sample_names) = count(string_parser, cols as usize)(remain)?;
+    let (remain, sample_names) = count(length_string, cols as usize)(remain)?;
 
     // Skip error rate because Rust doesn't have long double (128 bits) yet
     let (remain, _) = take(16 * cols)(remain)?;
@@ -81,7 +81,7 @@ pub fn cleaning(input: &[u8]) -> IResult<&[u8], Cleaning> {
     let (remain, cleaned_against_graph) = le_u8(remain)?;
     let (remain, remove_low_coverage_supernodes_threshold) = le_u32(remain)?;
     let (remain, remove_low_coverage_kmer_threshold) = le_u32(remain)?;
-    let (remain, graph_name) = string_parser(remain)?;
+    let (remain, graph_name) = length_string(remain)?;
 
     Ok((remain, Cleaning {
         top_clip: top_clip != 0,
@@ -164,7 +164,7 @@ pub fn mccortex_stream(on_header: fn(Header), on_kmer: fn(Kmer)) -> Box<dyn Fn(&
     })
 }
 
-fn string_parser(input: &[u8]) -> IResult<&[u8], String> {
+fn length_string(input: &[u8]) -> IResult<&[u8], String> {
     let (remain, parsed) = map(length_count(le_u32, le_u8), |s| String::from_utf8(s).unwrap())(input)?;
     Ok((remain, parsed))
 }
