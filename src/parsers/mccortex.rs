@@ -118,18 +118,15 @@ fn parse_header() {
     };
     assert_eq!(
         parsed,
-        Header { version: 6, kmer_size: 31, W: 1, cols: 1, mean_read_lens: vec![177], total_seq_loaded: vec![3918788033] }
-    );
-}
-
-#[test]
-fn parse_sample_name() {
-    let parsed = match sample_name(&TEST_FILE[34..]) {
-        Ok((_, parsed)) => parsed,
-        Err(e) => panic!(e)
-    };
-    assert_eq!(
-        parsed,
-        SampleName { len: 6, value: "sample".parse().unwrap() }
+        Header {
+            version: 6,
+            kmer_size: 31,
+            W: 1,
+            cols: 1,
+            mean_read_lens: vec![177],
+            total_seq_loaded: vec![3918788033],
+            sample_names: vec![SampleName { len: 6, value: "sample".to_string() }],
+            cleaning: vec![Cleaning { top_clip: true, remove_low_covg_supernodes: true, remove_low_covg_kmers: false, cleaned_against_graph: false, remove_low_coverage_supernodes_threshold: 26, remove_low_coverage_kmer_threshold: 4294967295, graph_name: "undefined".to_string() }]
+        }
     );
 }
