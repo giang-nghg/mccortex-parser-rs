@@ -50,22 +50,11 @@ pub fn header(input: &[u8]) -> IResult<&[u8], Header> {
 
     let (remain, sample_names) = count(sample_name, cols as usize)(remain)?;
 
-    // Skip error rate because Rust doesn't have long double (either 80 or 128 bits) yet
+    // Skip error rate because Rust doesn't have long double (128 bits) yet
     let to_skip = 16 * cols as usize;
     let remain = &remain[to_skip..];
 
-    // Skip cleaning information temporary
-    // let (remain, cleaning) = count(cleaning, header.cols as usize)(remain)?;
-    let (remain, _) = take_until(SIGNATURE)(remain)?;
-    let cleaning = vec![Cleaning{
-        top_clip: false,
-        remove_low_covg_supernodes: false,
-        remove_low_covg_kmers: false,
-        cleaned_against_graph: false,
-        remove_low_coverage_supernodes_threshold: 0,
-        remove_low_coverage_kmer_threshold: 0,
-        graph_name: "".to_string()
-    }];
+    let (remain, cleaning) = count(cleaning, cols as usize)(remain)?;
 
     let (remain, _) = tag(SIGNATURE)(remain)?;
 
@@ -93,11 +82,11 @@ pub fn sample_name(input: &[u8]) -> IResult<&[u8], SampleName> {
 
 pub fn cleaning(input: &[u8]) -> IResult<&[u8], Cleaning> {
     let (remain, top_clip) = le_u8(input)?;
-    let (remain, remove_low_covg_supernodes) = le_u8(input)?;
-    let (remain, remove_low_covg_kmers) = le_u8(input)?;
-    let (remain, cleaned_against_graph) = le_u8(input)?;
-    let (remain, remove_low_coverage_supernodes_threshold) = le_u32(input)?;
-    let (remain, remove_low_coverage_kmer_threshold) = le_u32(input)?;
+    let (remain, remove_low_covg_supernodes) = le_u8(remain)?;
+    let (remain, remove_low_covg_kmers) = le_u8(remain)?;
+    let (remain, cleaned_against_graph) = le_u8(remain)?;
+    let (remain, remove_low_coverage_supernodes_threshold) = le_u32(remain)?;
+    let (remain, remove_low_coverage_kmer_threshold) = le_u32(remain)?;
     let (remain, graph_name) = length_count(le_u32, le_u8)(remain)?;
 
     Ok((remain, Cleaning {
