@@ -3,7 +3,6 @@ use nom::number::complete::{le_u8, le_u32, le_u64};
 use nom::multi::count;
 use nom::bytes::complete::tag;
 use nom::sequence::tuple;
-use std::error::Error;
 
 // Spec: https://github.com/mcveanlab/mccortex/blob/master/docs/file_formats/graph_file_format.txt
 const SIGNATURE: &str = "CORTEX";
@@ -69,21 +68,25 @@ pub fn mccortex(input: &[u8]) -> IResult<&[u8], McCortex> {
 const TEST_FILE: &'static [u8] = include_bytes!("../../tests/data/sample.ctx");
 
 #[test]
-fn parse_header() -> Result<(), Box<dyn Error>> {
-    let (_, parsed) = header(&TEST_FILE[..])?;
+fn parse_header() {
+    let parsed = match header(&TEST_FILE[..]) {
+        Ok((_, parsed)) => parsed,
+        Err(e) => panic!(e)
+    };
     assert_eq!(
         parsed,
         Header { version: 6, kmer_size: 31, W: 1, cols: 1, mean_read_lens: vec![177], total_seq_loaded: vec![3918788033] }
     );
-    Ok(())
 }
 
 #[test]
-fn parse_sample_name() -> Result<(), Box<dyn Error>> {
-    let (_, parsed) = sample_name(&TEST_FILE[34..])?;
+fn parse_sample_name() {
+    let parsed = match sample_name(&TEST_FILE[34..]) {
+        Ok((_, parsed)) => parsed,
+        Err(e) => panic!(e)
+    };
     assert_eq!(
         parsed,
         SampleName { len: 6, value: "sample".parse().unwrap() }
     );
-    Ok(())
 }
