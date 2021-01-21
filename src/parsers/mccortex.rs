@@ -1,5 +1,5 @@
 use nom::{IResult};
-use nom::number::complete::{le_u32, le_u64};
+use nom::number::complete::{le_u8, le_u32, le_u64};
 use nom::multi::count;
 use nom::bytes::complete::tag;
 use nom::sequence::tuple;
@@ -9,6 +9,12 @@ use std::error::Error;
 const SIGNATURE: &str = "CORTEX";
 
 #[derive(Debug, PartialEq)]
+pub struct McCortex {
+    pub header: Header,
+    pub sample_names: Vec<SampleName>,
+}
+
+#[derive(Debug, PartialEq)]
 pub struct Header {
     pub version: u32,
     pub kmer_size: u32,
@@ -16,6 +22,12 @@ pub struct Header {
     pub cols: u32,
     pub mean_read_lens: Vec<u32>,
     pub total_seq_loaded: Vec<u64>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct SampleName {
+    pub len: u32,
+    pub value: String,
 }
 
 pub fn header(input: &[u8]) -> IResult<&[u8], Header> {
@@ -34,6 +46,26 @@ pub fn header(input: &[u8]) -> IResult<&[u8], Header> {
     }))
 }
 
+pub fn sample_name(input: &[u8]) -> IResult<&[u8], SampleName> {
+    let (remain, len) = le_u32(input)?;
+    let (remain, value) = count(le_u8, len as usize)(remain)?;
+
+    Ok((remain, SampleName {
+        len,
+        value: String::from_utf8(value).unwrap(),
+    }))
+}
+
+pub fn mccortex(input: &[u8]) -> IResult<&[u8], McCortex> {
+    let (remain, header) = header(input)?;
+    let (remain, sample_names) = count(sample_name, header.cols as usize)(remain)?;
+
+    Ok((remain, McCortex {
+        header,
+        sample_names,
+    }))
+}
+
 const TEST_FILE: &'static [u8] = include_bytes!("../../tests/data/sample.ctx");
 
 #[test]
@@ -42,6 +74,16 @@ fn parse_header() -> Result<(), Box<dyn Error>> {
     assert_eq!(
         parsed,
         Header { version: 6, kmer_size: 31, W: 1, cols: 1, mean_read_lens: vec![177], total_seq_loaded: vec![3918788033] }
+    );
+    Ok(())
+}
+
+#[test]
+fn parse_sample_name() -> Result<(), Box<dyn Error>> {
+    let (_, parsed) = sample_name(&TEST_FILE[34..])?;
+    assert_eq!(
+        parsed,
+        SampleName { len: 6, value: "sample".parse().unwrap() }
     );
     Ok(())
 }
