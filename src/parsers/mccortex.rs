@@ -1,6 +1,6 @@
 use nom::{IResult};
 use nom::number::streaming::{le_u8, le_u32, le_u64};
-use nom::multi::{count, length_count, many0};
+use nom::multi::{count, length_count};
 use nom::bytes::streaming::{tag, take};
 use nom::sequence::tuple;
 use nom::combinator::map;
@@ -139,17 +139,7 @@ pub fn kmer(n_words_per_kmer: u32, cols: u32) -> Box<dyn Fn(&[u8]) -> IResult<&[
     })
 }
 
-pub fn mccortex(input: &[u8]) -> IResult<&[u8], McCortex> {
-    let (remain, header) = header(input)?;
-    let (remain, kmers) = many0(kmer(header.n_words_per_kmer, header.n_colours))(remain)?;
-
-    Ok((remain, McCortex {
-        header,
-        kmers
-    }))
-}
-
-pub fn mccortex_stream(on_header: fn(Header), on_kmer: fn(Kmer)) -> Box<dyn Fn(&File) -> IResult<Vec<u8>, ()>> {
+pub fn mccortex(on_header: fn(Header), on_kmer: fn(Kmer)) -> Box<dyn Fn(&File) -> IResult<Vec<u8>, ()>> {
     Box::new(move |input| {
         let mut buf = Vec::new();
         let (mut n_words_per_kmer, mut cols) = (0, 0);
