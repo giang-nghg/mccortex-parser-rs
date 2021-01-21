@@ -21,18 +21,18 @@ pub struct Header {
     pub version: u32,
     pub kmer_size: u32,
     pub n_words_per_kmer: u32,
-    pub cols: u32,
-    pub mean_read_lens: Vec<u32>,
-    pub total_seq_loaded: Vec<u64>,
+    pub n_colours: u32,
+    pub mean_read_len_per_colour: Vec<u32>,
+    pub total_seq_per_colour: Vec<u64>,
     pub sample_names: Vec<String>,
-    pub cleaning: Vec<Cleaning>
+    pub cleaning_info_per_colour: Vec<Cleaning>
 }
 
 #[derive(Debug, PartialEq)]
 pub struct Kmer {
-    pub raw: String,
-    pub colour_covs: Vec<u32>,
-    pub colour_edges: Vec<(Vec<char>, Vec<char>)>,
+    pub kmer: String,
+    pub coverage_per_colour: Vec<u32>,
+    pub edges_per_colour: Vec<(Vec<char>, Vec<char>)>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -66,11 +66,11 @@ pub fn header(remain: &[u8]) -> IResult<&[u8], Header> {
         version,
         kmer_size,
         n_words_per_kmer,
-        cols,
-        mean_read_lens,
-        total_seq_loaded,
+        n_colours: cols,
+        mean_read_len_per_colour: mean_read_lens,
+        total_seq_per_colour: total_seq_loaded,
         sample_names,
-        cleaning,
+        cleaning_info_per_colour: cleaning,
     }))
 }
 
@@ -133,14 +133,15 @@ pub fn kmer(n_words_per_kmer: u32, cols: u32) -> Box<dyn Fn(&[u8]) -> IResult<&[
         }
 
         Ok((remain, Kmer{
-            raw: bases.into_iter().collect::<String>(), colour_covs, colour_edges: colour_edges_vec
+            kmer: bases.into_iter().collect::<String>(),
+            coverage_per_colour: colour_covs, edges_per_colour: colour_edges_vec
         }))
     })
 }
 
 pub fn mccortex(input: &[u8]) -> IResult<&[u8], McCortex> {
     let (remain, header) = header(input)?;
-    let (remain, kmers) = many0(kmer(header.n_words_per_kmer, header.cols))(remain)?;
+    let (remain, kmers) = many0(kmer(header.n_words_per_kmer, header.n_colours))(remain)?;
 
     Ok((remain, McCortex {
         header,
@@ -163,7 +164,7 @@ pub fn mccortex_stream(on_header: fn(Header), on_kmer: fn(Kmer)) -> Box<dyn Fn(&
                     Ok((remain, header)) => {
                         is_header_parsed = true;
                         n_words_per_kmer = header.n_words_per_kmer;
-                        cols = header.cols;
+                        cols = header.n_colours;
                         buf = Vec::from(remain);
 
                         on_header(header);
@@ -215,11 +216,11 @@ fn parse_header() {
             version: 6,
             kmer_size: 31,
             n_words_per_kmer: 1,
-            cols: 1,
-            mean_read_lens: vec![177],
-            total_seq_loaded: vec![3918788033],
+            n_colours: 1,
+            mean_read_len_per_colour: vec![177],
+            total_seq_per_colour: vec![3918788033],
             sample_names: vec!["sample".to_string()],
-            cleaning: vec![Cleaning { top_clip: true, remove_low_covg_supernodes: true, remove_low_covg_kmers: false, cleaned_against_graph: false, remove_low_coverage_supernodes_threshold: 26, remove_low_coverage_kmer_threshold: 4294967295, graph_name: "undefined".to_string() }]
+            cleaning_info_per_colour: vec![Cleaning { top_clip: true, remove_low_covg_supernodes: true, remove_low_covg_kmers: false, cleaned_against_graph: false, remove_low_coverage_supernodes_threshold: 26, remove_low_coverage_kmer_threshold: 4294967295, graph_name: "undefined".to_string() }]
         }
     );
 }
@@ -230,12 +231,12 @@ fn parse_kmer() {
         Ok((remain, header)) => (remain, header),
         Err(e) => panic!(e)
     };
-    let parsed = match kmer(header.n_words_per_kmer, header.cols)(&remain[..13]) {
+    let parsed = match kmer(header.n_words_per_kmer, header.n_colours)(&remain[..13]) {
         Ok((_, parsed)) => parsed,
         Err(e) => panic!(e)
     };
     assert_eq!(
         parsed,
-        Kmer { raw: String::from("CTCGGCTACCCCGAACTCCAGCGAGAAGTACA"), colour_covs: vec![759], colour_edges: vec![(vec!['C'], vec!['G'])] }
+        Kmer { kmer: String::from("CTCGGCTACCCCGAACTCCAGCGAGAAGTACA"), coverage_per_colour: vec![759], edges_per_colour: vec![(vec!['C'], vec!['G'])] }
     );
 }
