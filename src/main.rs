@@ -1,17 +1,12 @@
-use std::fs::read;
-use std::error;
+use std::fs::{File};
+use crate::parsers::mccortex::{mccortex_stream};
 
 pub mod parsers;
 
-fn main() -> Result<(), Box<dyn error::Error>>{
-  let file = read("tests/data/sample.ctx")?;
-  let result = parsers::mccortex::mccortex(&file[..]);
-  match result {
-    Ok((_remain, parsed)) => {
-      print!("DEBUG: {:?}", parsed);
-    },
-    Err(_) => {}
-  }
-
-  Ok(())
+fn main() {
+  let file = File::open("tests/data/sample.ctx").unwrap();
+  match mccortex_stream(&file, |s| print!("{:?}\n", s), |s| ()) {
+    Err(e) => panic!(e),
+    _ => {}
+  };
 }

@@ -1,9 +1,11 @@
 use nom::{IResult};
-use nom::number::complete::{le_u8, le_u32, le_u64};
+use nom::number::streaming::{le_u8, le_u32, le_u64};
 use nom::multi::{count, length_count, many0};
-use nom::bytes::complete::{tag};
+use nom::bytes::streaming::{tag, take};
 use nom::sequence::tuple;
 use nom::combinator::map;
+use std::fs::File;
+use std::io::Read;
 
 // Spec: https://github.com/mcveanlab/mccortex/blob/master/docs/file_formats/graph_file_format.txt
 const SIGNATURE: &str = "CORTEX";
@@ -18,7 +20,7 @@ pub struct McCortex {
 pub struct Header {
     pub version: u32,
     pub kmer_size: u32,
-    pub W: u32,
+    pub n_words_per_kmer: u32,
     pub cols: u32,
     pub mean_read_lens: Vec<u32>,
     pub total_seq_loaded: Vec<u64>,
@@ -44,18 +46,17 @@ pub struct Cleaning {
     pub graph_name: String,
 }
 
-pub fn header(input: &[u8]) -> IResult<&[u8], Header> {
-    let (remain, _) = tag(SIGNATURE)(input)?;
+pub fn header(remain: &[u8]) -> IResult<&[u8], Header> {
+    let (remain, _) = tag(SIGNATURE)(remain)?;
 
-    let (remain, (version, kmer_size, W, cols)) = tuple((le_u32, le_u32, le_u32, le_u32))(remain)?;
+    let (remain, (version, kmer_size, n_words_per_kmer, cols)) = tuple((le_u32, le_u32, le_u32, le_u32))(remain)?;
     let (remain, mean_read_lens) = count(le_u32, cols as usize)(remain)?;
     let (remain, total_seq_loaded) = count(le_u64, cols as usize)(remain)?;
 
     let (remain, sample_names) = count(string_parser, cols as usize)(remain)?;
 
     // Skip error rate because Rust doesn't have long double (128 bits) yet
-    let to_skip = 16 * cols as usize;
-    let remain = &remain[to_skip..];
+    let (remain, _) = take(16 * cols)(remain)?;
 
     let (remain, cleaning) = count(cleaning, cols as usize)(remain)?;
 
@@ -64,7 +65,7 @@ pub fn header(input: &[u8]) -> IResult<&[u8], Header> {
     Ok((remain, Header {
         version,
         kmer_size,
-        W,
+        n_words_per_kmer,
         cols,
         mean_read_lens,
         total_seq_loaded,
@@ -93,8 +94,8 @@ pub fn cleaning(input: &[u8]) -> IResult<&[u8], Cleaning> {
     }))
 }
 
-pub fn kmer(input: &[u8], W: u32, cols: u32) -> IResult<&[u8], Kmer> {
-    let (remain, raw) = count(le_u64, W as usize)(input)?;
+pub fn kmer(input: &[u8], n_words_per_kmer: u32, cols: u32) -> IResult<&[u8], Kmer> {
+    let (remain, raw) = count(le_u64, n_words_per_kmer as usize)(input)?;
     let (remain, colour_covs) = count(le_u32, cols as usize)(remain)?;
     let (remain, colour_edges) = count(le_u8, cols as usize)(remain)?;
 
@@ -105,12 +106,58 @@ pub fn kmer(input: &[u8], W: u32, cols: u32) -> IResult<&[u8], Kmer> {
 
 pub fn mccortex(input: &[u8]) -> IResult<&[u8], McCortex> {
     let (remain, header) = header(input)?;
-    let (remain, kmers) = many0(|b| kmer(b, header.W, header.cols))(remain)?;
+    let (remain, kmers) = many0(|b| kmer(b, header.n_words_per_kmer, header.cols))(remain)?;
 
     Ok((remain, McCortex {
         header,
         kmers
     }))
+}
+
+pub fn mccortex_stream(input: &File, on_header: fn(Header), on_kmer: fn(Kmer)) -> IResult<Vec<u8>, ()> {
+    let mut buf = Vec::new();
+    let (mut n_words_per_kmer, mut cols) = (0, 0);
+    let mut is_header_parsed = false;
+
+    for byte in input.bytes() {
+        buf.push(byte.unwrap());
+
+        if !is_header_parsed {
+            match header(&*buf) {
+                Err(nom::Err::Incomplete(..)) => continue,
+                Ok((remain, header)) => {
+                    is_header_parsed = true;
+                    n_words_per_kmer = header.n_words_per_kmer;
+                    cols = header.cols;
+                    buf = Vec::from(remain);
+
+                    on_header(header);
+                },
+                Err(nom::Err::Error(e)) => {
+                    return Err(nom::Err::Error(nom::error::Error{input: Vec::from(e.input), code: e.code}));
+                }
+                Err(nom::Err::Failure(e)) => {
+                    return Err(nom::Err::Failure(nom::error::Error{input: Vec::from(e.input), code: e.code}));
+                }
+            }
+        }
+
+        match kmer(&*buf, n_words_per_kmer, cols) {
+            Err(nom::Err::Incomplete(..)) => continue,
+            Ok((remain, kmer)) => {
+                buf = Vec::from(remain);
+                on_kmer(kmer);
+            },
+            Err(nom::Err::Error(e)) => {
+                return Err(nom::Err::Error(nom::error::Error{input: Vec::from(e.input), code: e.code}));
+            }
+            Err(nom::Err::Failure(e)) => {
+                return Err(nom::Err::Failure(nom::error::Error{input: Vec::from(e.input), code: e.code}));
+            }
+        }
+    }
+
+    Ok((buf, ()))
 }
 
 fn string_parser(input: &[u8]) -> IResult<&[u8], String> {
@@ -131,7 +178,7 @@ fn parse_header() {
         Header {
             version: 6,
             kmer_size: 31,
-            W: 1,
+            n_words_per_kmer: 1,
             cols: 1,
             mean_read_lens: vec![177],
             total_seq_loaded: vec![3918788033],
@@ -147,7 +194,7 @@ fn parse_kmer() {
         Ok((remain, header)) => (remain, header),
         Err(e) => panic!(e)
     };
-    let parsed = match kmer(&remain[..13], header.W, header.cols) {
+    let parsed = match kmer(&remain[..13], header.n_words_per_kmer, header.cols) {
         Ok((_, parsed)) => parsed,
         Err(e) => panic!(e)
     };
